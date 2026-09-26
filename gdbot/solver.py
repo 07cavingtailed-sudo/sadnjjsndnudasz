@@ -438,12 +438,20 @@ class Solver:
         Keeping the tape exactly as long as the solved prefix is what makes
         ``freeze_before`` meaningful for the next section.
         """
+        arr = np.asarray(tape, dtype=np.uint8)
         self.env.reset()
-        for k, action in enumerate(np.asarray(tape, dtype=np.uint8)):
+        outcome = Outcome.TIMEOUT
+        cut = arr.size
+        for k, action in enumerate(arr):
             result = self.env.step(int(action))
             if self.env.progress >= goal or result.done:
-                return np.asarray(tape[: k + 1], dtype=np.uint8)
-        return np.asarray(tape, dtype=np.uint8)
+                cut, outcome = k + 1, result.outcome
+                break
+        # Against the real game this pass is a real attempt; count it as one.
+        self._record(Attempt(actions=arr[:cut], start_progress=0.0,
+                             end_progress=self.env.progress, outcome=outcome,
+                             reward=0.0, ticks=cut))
+        return arr[:cut].copy()
 
     # ----------------------------------------------------------------- verify
     def verify(self, tape: np.ndarray, runs: int = 3) -> int:

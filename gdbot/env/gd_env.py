@@ -61,6 +61,9 @@ class GDEnv(AttemptEnv):
     RESTART_TIMEOUT = 12.0
     #: How long holding jump may take to end an unwanted run, seconds.
     ABORT_TIMEOUT = 20.0
+    #: After a clear the game shows its level-complete screen and does not
+    #: restart by itself, so someone has to press restart; wait much longer.
+    AFTER_CLEAR_TIMEOUT = 180.0
 
     def __init__(
         self,
@@ -127,9 +130,9 @@ class GDEnv(AttemptEnv):
             "(gdbot calibrate)."
         )
 
-    def _wait_for_restart(self) -> float:
+    def _wait_for_restart(self, timeout: float | None = None) -> float:
         """Block until a new attempt begins; return the perf_counter of tick 0."""
-        deadline = time.perf_counter() + self.RESTART_TIMEOUT
+        deadline = time.perf_counter() + (self.RESTART_TIMEOUT if timeout is None else timeout)
         self._prev_gray = None
         saw_low = False
         while time.perf_counter() < deadline:
@@ -153,10 +156,15 @@ class GDEnv(AttemptEnv):
 
     def reset(self) -> Observation:
         self.presser.release()
-        reading = self._grab()
-        if reading > 0.02 and self.tracker.outcome is Outcome.RUNNING:
-            self._end_live_run()
-        tick0 = self._wait_for_restart()
+        timeout = None
+        if self.tracker.outcome is Outcome.COMPLETE:
+            print("  level cleared -- press Restart in the game to start the next attempt", flush=True)
+            timeout = self.AFTER_CLEAR_TIMEOUT
+        else:
+            reading = self._grab()
+            if reading > 0.02 and self.tracker.outcome is Outcome.RUNNING:
+                self._end_live_run()
+        tick0 = self._wait_for_restart(timeout)
         self.clock.start(at=tick0)
         self._tick = 0
         self._y, self._vy = -1.0, 0.0
@@ -172,7 +180,17 @@ class GDEnv(AttemptEnv):
         outcome = self.tracker.update(reading)
         if outcome is not Outcome.RUNNING:
             self.presser.release()
-        obs = self.observe()
+        # No features here: the tape search -- nearly every real attempt -- never
+        # looks at them, and edge detection on a full frame every tick would eat
+        # into the 16 ms tick budget and make input timing worse.  Policies call
+        # observe() when they actually need to look.
+        obs = Observation(
+            features=F.empty(),
+            progress=self.progress,
+            alive=outcome is not Outcome.DEAD,
+            tick=self._tick,
+            frame=self._play,
+        )
         reward = (self.progress - before) * 100.0 - (1.0 if outcome is Outcome.DEAD else 0.0)
         return StepResult(obs=obs, reward=reward, outcome=outcome)
 
@@ -185,8 +203,12 @@ class GDEnv(AttemptEnv):
         if self._play is None:
             self._grab()
         assert self._play is not None
-        grid = occupancy_from_frame(self._play, self.cfg.vision)
-        y = estimate_player_y(self._play)
+        # The grid is 7x10 cells: a quarter-resolution frame loses nothing that
+        # matters and costs a sixteenth of the time.
+        stride = max(1, self._play.shape[0] // 270)
+        small = self._play[::stride, ::stride]
+        grid = occupancy_from_frame(small, self.cfg.vision)
+        y = estimate_player_y(small)
         # velocity from successive height estimates: y spans the play area, which
         # is VERTICAL_BLOCKS cells of 30 units
         half_height_units = F.VERTICAL_BLOCKS * 30.0 / 2.0

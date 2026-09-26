@@ -61,3 +61,24 @@ def test_death_reports_the_peak_not_the_reset_bar():
     assert attempt.outcome is Outcome.DEAD
     assert 0.35 < attempt.end_progress <= 0.41
     env.close()
+
+
+def test_steps_skip_vision_but_observe_still_works(monkeypatch):
+    import gdbot.env.gd_env as mod
+
+    calls = {"n": 0}
+    real = mod.occupancy_from_frame
+
+    def counting(*a, **k):
+        calls["n"] += 1
+        return real(*a, **k)
+
+    monkeypatch.setattr(mod, "occupancy_from_frame", counting)
+    env = _env(FakeScreen(rate=3.0))
+    env.run_tape(np.zeros(2000, np.uint8))
+    after_tape = calls["n"]
+    feats = env.observe().features
+    assert calls["n"] == after_tape + 1  # only the explicit observe() ran vision
+    assert after_tape <= 1               # reset() builds one observation, steps none
+    assert feats.shape[0] > 0
+    env.close()
