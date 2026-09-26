@@ -23,7 +23,7 @@ PLAYER_X_FRAC = 0.25
 
 
 def _gradient_magnitude(gray: np.ndarray) -> np.ndarray:
-    """Cheap Sobel-ish edge magnitude, numpy only (keeps opencv optional)."""
+    """Cheap Sobel-ish edge magnitude in plain numpy (no opencv needed)."""
     gy = np.abs(np.diff(gray, axis=0, prepend=gray[:1, :]))
     gx = np.abs(np.diff(gray, axis=1, prepend=gray[:, :1]))
     return gx + gy

@@ -24,12 +24,13 @@ def _load_config(path: str | None, **overrides) -> Config:
 
 
 def _resolve_level(name_or_path: str) -> Path:
+    """A path that exists, else a bundled level by name -- from any directory."""
     p = Path(name_or_path)
     if p.exists():
         return p
-    bundled = LEVELS / f"{name_or_path}.json"
-    if bundled.exists():
-        return bundled
+    for bundled in (LEVELS / f"{name_or_path}.json", LEVELS / p.name, LEVELS / f"{p.stem}.json"):
+        if bundled.exists():
+            return bundled
     raise SystemExit(f"no such level: {name_or_path} (bundled: {', '.join(sorted(x.stem for x in LEVELS.glob('*.json')))})")
 
 
@@ -192,6 +193,19 @@ def cmd_record(a: argparse.Namespace) -> int:  # pragma: no cover - needs the ga
     return 0
 
 
+def _enable_ansi() -> None:  # pragma: no cover - Windows only
+    """Let cmd.exe interpret the escape codes the live readout redraws with."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+    mode = ctypes.c_uint32()
+    if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+        kernel32.SetConsoleMode(handle, mode.value | 0x0004)  # VIRTUAL_TERMINAL_PROCESSING
+
+
 def cmd_calibrate(a: argparse.Namespace) -> int:  # pragma: no cover - needs a display
     import gdbot.features as F
     from gdbot.capture.screen import ScreenCapture
@@ -213,6 +227,7 @@ def cmd_calibrate(a: argparse.Namespace) -> int:  # pragma: no cover - needs a d
     print("Live readings (Ctrl+C to stop). Start the level: progress must rise from 0 and")
     print("reset on death; the grid should light up where obstacles are.\n")
     cap = ScreenCapture(cfg.capture)
+    _enable_ansi()
     try:
         while True:
             play, bar = cap.grab()

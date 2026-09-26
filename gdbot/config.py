@@ -56,9 +56,9 @@ def _build(cls: Type[T], data: Mapping[str, Any]) -> T:
 class CaptureConfig:
     """Where on screen the game is, and how we read its state.
 
-    All rectangles are ``[x, y, w, h]`` in screen pixels.  ``gdbot calibrate``
-    fills these in interactively; they are the only numbers that depend on the
-    user's monitor.
+    All rectangles are ``[x, y, w, h]`` in pixels of the chosen monitor, exactly
+    as measured on the screenshot ``gdbot calibrate`` saves; they are the only
+    numbers that depend on the user's screen.
     """
 
     monitor: int = 1
@@ -139,7 +139,8 @@ class CurriculumConfig:
 @dataclass
 class Config:
     name: str = "default"
-    level: str = "gdbot/sim/levels/tutorial.json"
+    #: A bundled level name (``tutorial``, ``skeletal_proxy``) or a path.
+    level: str = "tutorial"
     run_dir: str = "runs/default"
     tick_rate: int = 60
     max_ticks: int = 60 * 180

@@ -72,3 +72,30 @@ def test_cli_solve_play_export(tmp_path, capsys):
     assert main(["show", "--level", "skeletal_proxy"]) == 0
     out = capsys.readouterr().out
     assert "CLEARED" in out and "2/2 clean runs" in out
+
+
+def test_sendinput_structure_has_the_size_windows_requires():
+    # Regression: with only the keyboard variant in the union, INPUT was 32 bytes
+    # on 64-bit Windows instead of 40, and SendInput rejects every call whose
+    # cbSize differs from the system's sizeof(INPUT) (error 87).
+    import ctypes
+
+    from gdbot.inputs import keys
+
+    pointer = ctypes.sizeof(ctypes.c_void_p)
+    assert ctypes.sizeof(keys._INPUT) == (40 if pointer == 8 else 28)
+    assert keys._KEYBDINPUT.wScan.offset == 2
+    assert keys._KEYBDINPUT.dwFlags.offset == 4
+    assert keys._KEYBDINPUT.dwExtraInfo.offset == (16 if pointer == 8 else 12)
+
+
+def test_bundled_levels_resolve_from_any_directory(tmp_path, monkeypatch):
+    from gdbot.cli import LEVELS, _resolve_level
+
+    monkeypatch.chdir(tmp_path)
+    assert _resolve_level("skeletal_proxy") == LEVELS / "skeletal_proxy.json"
+    assert _resolve_level("gdbot/sim/levels/tutorial.json") == LEVELS / "tutorial.json"
+    for path in sorted(CONFIGS.glob("*.json")):
+        cfg = Config.from_file(path)
+        if not cfg.name.startswith("skeletal_shenanigans"):
+            assert _resolve_level(cfg.level).exists()

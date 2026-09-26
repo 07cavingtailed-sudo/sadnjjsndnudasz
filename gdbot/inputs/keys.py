@@ -10,6 +10,7 @@ events indistinguishable from a real keyboard at the kernel level.
 
 from __future__ import annotations
 
+import ctypes
 import platform
 import shutil
 import subprocess
@@ -23,6 +24,49 @@ SCANCODES = {"space": 0x39, "up": 0xC8, "w": 0x11, "enter": 0x1C}
 XDO_KEYS = {"space": "space", "up": "Up", "w": "w", "enter": "Return"}
 #: Linux input event codes (``linux/input-event-codes.h``).
 EV_KEYS = {"space": 57, "up": 103, "w": 17, "enter": 28}
+
+
+# --- Windows SendInput structures ----------------------------------------------
+# Declared with explicit widths instead of ctypes.wintypes, for two reasons.
+# SendInput rejects the whole call (error 87) unless its cbSize argument equals
+# the system's sizeof(INPUT) -- 40 bytes on 64-bit Windows -- and INPUT only has
+# that size when the union also holds the larger *mouse* variant, even though
+# only the keyboard one is ever filled in.  And fixed widths make the layout the
+# same on every platform, so a test can check it without Windows.
+_DWORD, _WORD, _LONG, _ULONG_PTR = ctypes.c_uint32, ctypes.c_uint16, ctypes.c_int32, ctypes.c_size_t
+
+
+class _MOUSEINPUT(ctypes.Structure):
+    _fields_ = [
+        ("dx", _LONG), ("dy", _LONG), ("mouseData", _DWORD),
+        ("dwFlags", _DWORD), ("time", _DWORD), ("dwExtraInfo", _ULONG_PTR),
+    ]
+
+
+class _KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ("wVk", _WORD), ("wScan", _WORD), ("dwFlags", _DWORD),
+        ("time", _DWORD), ("dwExtraInfo", _ULONG_PTR),
+    ]
+
+
+class _HARDWAREINPUT(ctypes.Structure):
+    _fields_ = [("uMsg", _DWORD), ("wParamL", _WORD), ("wParamH", _WORD)]
+
+
+class _INPUTUNION(ctypes.Union):
+    _fields_ = [("mi", _MOUSEINPUT), ("ki", _KEYBDINPUT), ("hi", _HARDWAREINPUT)]
+
+
+class _INPUT(ctypes.Structure):
+    _anonymous_ = ("u",)
+    _fields_ = [("type", _DWORD), ("u", _INPUTUNION)]
+
+
+_INPUT_KEYBOARD = 1
+_KEYEVENTF_EXTENDEDKEY = 0x0001
+_KEYEVENTF_KEYUP = 0x0002
+_KEYEVENTF_SCANCODE = 0x0008
 
 
 class KeyPresser(ABC):
@@ -79,51 +123,33 @@ class SendInputPresser(KeyPresser):  # pragma: no cover - Windows only
 
     def __init__(self, key: str = "space") -> None:
         super().__init__(key)
-        import ctypes
-        from ctypes import wintypes
-
-        self._ctypes = ctypes
         if key not in SCANCODES:
             raise ValueError(f"unsupported key {key!r}; choose from {sorted(SCANCODES)}")
         self.scan = SCANCODES[key]
-
-        class KEYBDINPUT(ctypes.Structure):
-            _fields_ = [
-                ("wVk", wintypes.WORD),
-                ("wScan", wintypes.WORD),
-                ("dwFlags", wintypes.DWORD),
-                ("time", wintypes.DWORD),
-                ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
-            ]
-
-        class INPUT(ctypes.Structure):
-            class _U(ctypes.Union):
-                _fields_ = [("ki", KEYBDINPUT)]
-
-            _anonymous_ = ("u",)
-            _fields_ = [("type", wintypes.DWORD), ("u", _U)]
-
-        self._INPUT = INPUT
-        self._user32 = ctypes.WinDLL("user32", use_last_error=True)
+        self._user32 = ctypes.WinDLL("user32", use_last_error=True)  # type: ignore[attr-defined]
+        self._user32.SendInput.argtypes = (ctypes.c_uint, ctypes.POINTER(_INPUT), ctypes.c_int)
+        self._user32.SendInput.restype = ctypes.c_uint
 
     def _send(self, flags: int) -> None:
-        # 0x0008 = KEYEVENTF_SCANCODE, 0x0002 = KEYEVENTF_KEYUP, 0x0001 = EXTENDEDKEY
-        extended = 0x0001 if self.scan > 0x7F else 0
-        inp = self._INPUT(type=1)
-        inp.ki.wVk = 0
-        inp.ki.wScan = self.scan & 0x7F if extended else self.scan
-        inp.ki.dwFlags = 0x0008 | extended | flags
-        inp.ki.time = 0
-        inp.ki.dwExtraInfo = None
-        sent = self._user32.SendInput(1, self._ctypes.byref(inp), self._ctypes.sizeof(inp))
+        # Extended keys (the arrows) are sent as E0-prefixed scancodes.
+        extended = _KEYEVENTF_EXTENDEDKEY if self.scan > 0x7F else 0
+        inp = _INPUT(type=_INPUT_KEYBOARD)
+        inp.ki = _KEYBDINPUT(
+            wVk=0,
+            wScan=self.scan & 0x7F if extended else self.scan,
+            dwFlags=_KEYEVENTF_SCANCODE | extended | flags,
+            time=0,
+            dwExtraInfo=0,
+        )
+        sent = self._user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(_INPUT))
         if sent != 1:
-            raise OSError(f"SendInput failed: {self._ctypes.get_last_error()}")
+            raise OSError(f"SendInput failed: error {ctypes.get_last_error()}")  # type: ignore[attr-defined]
 
     def _down(self) -> None:
         self._send(0)
 
     def _up(self) -> None:
-        self._send(0x0002)
+        self._send(_KEYEVENTF_KEYUP)
 
 
 class UinputPresser(KeyPresser):  # pragma: no cover - needs /dev/uinput

@@ -2,7 +2,7 @@
 //   gdbot solve -c configs/sim.json
 {
   "name": "skeletal_proxy",
-  "level": "gdbot/sim/levels/skeletal_proxy.json",
+  "level": "skeletal_proxy",
   "run_dir": "runs/sim",
   "tick_rate": 60,
   "max_ticks": 15600,          // 260 s: longer than the level, so a run can only end by clearing or dying

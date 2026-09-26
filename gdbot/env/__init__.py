@@ -14,7 +14,7 @@ __all__ = ["AttemptEnv", "shape_reward", "SimEnv"]
 
 
 def __getattr__(name: str):  # pragma: no cover - optional heavy import
-    # GDEnv pulls in mss / opencv, which are only installed on the machine that
+    # GDEnv pulls in mss, which is only installed on the machine that
     # actually runs Geometry Dash.  Import it lazily so the simulator side works
     # with numpy alone.
     if name == "GDEnv":

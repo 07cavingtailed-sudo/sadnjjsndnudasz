@@ -1,14 +1,8 @@
-# core (required)
+# Everything needed to run gdbot, including against the real game.
+#   python -m pip install -r requirements.txt
 numpy>=1.24
+mss>=9.0        # screen capture
+pynput>=1.7     # recording your own attempts; fallback key input
 
-# real-game bridge (install on the machine where Geometry Dash runs)
-mss>=9.0
-opencv-python>=4.8
-pynput>=1.7            # only needed for demo recording / Linux input fallback
-
-# optional: PPO agent + Gymnasium wrappers
-# torch>=2.1
-# gymnasium>=0.29
-
-# dev
-pytest>=7.4
+# Optional, only for `gdbot train --ppo`:
+#   python -m pip install torch

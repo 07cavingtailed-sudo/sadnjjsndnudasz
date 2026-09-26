@@ -39,9 +39,13 @@ class ScreenCapture:
         self.play = tuple(cfg.play_area)
         self.bar = tuple(cfg.progress_bar)
         self.region = union_rect(self.play, self.bar)
+        # Rectangles are measured on the calibration screenshot, i.e. relative to
+        # the chosen monitor; mss grabs in virtual-desktop coordinates, which only
+        # coincide for a monitor whose corner is at (0, 0).
+        monitor = self._sct.monitors[cfg.monitor]
         self._mon = {
-            "left": self.region[0],
-            "top": self.region[1],
+            "left": monitor["left"] + self.region[0],
+            "top": monitor["top"] + self.region[1],
             "width": self.region[2],
             "height": self.region[3],
         }
