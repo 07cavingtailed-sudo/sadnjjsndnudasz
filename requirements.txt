@@ -1,0 +1,14 @@
+# core (required)
+numpy>=1.24
+
+# real-game bridge (install on the machine where Geometry Dash runs)
+mss>=9.0
+opencv-python>=4.8
+pynput>=1.7            # only needed for demo recording / Linux input fallback
+
+# optional: PPO agent + Gymnasium wrappers
+# torch>=2.1
+# gymnasium>=0.29
+
+# dev
+pytest>=7.4

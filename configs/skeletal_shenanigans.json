@@ -1,0 +1,51 @@
+// Real game: Skeletal Shenanigans.
+//
+//   1. gdbot calibrate  -c configs/skeletal_shenanigans.json   -> set the two capture rectangles below
+//   2. gdbot record     -c configs/skeletal_shenanigans.json   -> (optional) your own attempts as a head start
+//   3. gdbot solve --game -c configs/skeletal_shenanigans.json [--seed-tape human]
+//   4. gdbot play  --game -c configs/skeletal_shenanigans.json --runs 5
+//
+// Every attempt is played for real at the game's speed, so budget hours, not minutes.
+{
+  "name": "skeletal_shenanigans",
+  "run_dir": "runs/skeletal_shenanigans",
+  "tick_rate": 60,             // must match the FPS the game runs at (set a fixed FPS in GD's settings)
+  "max_ticks": 12000,          // 200 s cap per attempt; raise it if the level is longer
+
+  "capture": {
+    "monitor": 1,
+    // [x, y, w, h] in screen pixels. The values below are placeholders for a
+    // 1920x1080 fullscreen window -- run `gdbot calibrate` and replace them.
+    "play_area": [0, 0, 1920, 1080],
+    "progress_bar": [660, 30, 600, 18],   // the INNER part of the bar, without its border
+    "bar_fill_rgb": [255, 255, 255],      // colour of the filled part (GD default: white)
+    "bar_fill_tolerance": 70.0,
+  },
+
+  "vision": {
+    "death_progress_drop": 0.02,   // the bar dropping by more than this = the level restarted
+    "complete_progress": 0.995,
+    "complete_hold_ticks": 4,
+    "stall_ticks": 45,             // bar frozen this long after progress = death freeze / menu
+    "ray_reach": 0.45,             // occupancy strip width, as a fraction of the play area
+    "edge_threshold": 42.0,        // raise if the grid lights up on background decoration
+  },
+
+  "inputs": {
+    "backend": "auto",   // Windows: SendInput scancodes; Linux: uinput > xdotool; else pynput
+    "key": "space",
+  },
+
+  "train": {
+    "population": 24,
+    "hidden": [32],
+    "tape_population": 32,
+    "seed": 0,
+  },
+
+  "curriculum": {
+    "n_segments": 48,             // shorter sections = less replaying per attempt
+    "attempts_per_segment": 3000, // per section before retreating one section back
+    "verify_runs": 5,             // the final tape must clear this many times in a row
+  },
+}

@@ -1,0 +1,19 @@
+// Simulator run: learn and clear the bundled demon-style benchmark level.
+//   gdbot solve -c configs/sim.json
+{
+  "name": "skeletal_proxy",
+  "level": "gdbot/sim/levels/skeletal_proxy.json",
+  "run_dir": "runs/sim",
+  "tick_rate": 60,
+  "max_ticks": 15600,          // 260 s: longer than the level, so a run can only end by clearing or dying
+  "train": {
+    "population": 24,          // CEM candidates per generation (1 attempt each)
+    "hidden": [32],
+    "seed": 0,
+  },
+  "curriculum": {
+    "n_segments": 40,
+    "attempts_per_segment": 4000,
+    "verify_runs": 3,
+  },
+}

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gdbot"
+version = "0.1.0"
+description = "Self-learning agent that plays Geometry Dash: simulator pretraining, evolutionary tape search, backward-chained curriculum."
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+game = ["mss>=9.0", "opencv-python>=4.8", "pynput>=1.7"]
+torch = ["torch>=2.1", "gymnasium>=0.29"]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+gdbot = "gdbot.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["gdbot*"]
+
+[tool.setuptools.package-data]
+# the bundled levels are data files, not modules: without this a normal
+# (non-editable) install would ship the package without them
+gdbot = ["sim/levels/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error::RuntimeWarning"]
