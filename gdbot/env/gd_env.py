@@ -64,6 +64,8 @@ class GDEnv(AttemptEnv):
     #: After a clear the game shows its level-complete screen and does not
     #: restart by itself, so someone has to press restart; wait much longer.
     AFTER_CLEAR_TIMEOUT = 180.0
+    #: The very first attempt may need the user to start the level first.
+    FIRST_START_TIMEOUT = 90.0
 
     def __init__(
         self,
@@ -71,8 +73,14 @@ class GDEnv(AttemptEnv):
         *,
         capture: ScreenCapture | None = None,
         presser: KeyPresser | None = None,
+        live_run_timeout: float | None = None,
     ) -> None:
+        """``live_run_timeout`` bounds how long reset() spends ending a run that
+        is still going.  The recorder raises it: there a human is playing and
+        the run ends when they die, however long that takes."""
         self.cfg = cfg
+        self._live_run_timeout = self.ABORT_TIMEOUT if live_run_timeout is None else live_run_timeout
+        self._started = False
         self.capture = capture or ScreenCapture(cfg.capture)
         self.presser = presser or make_presser(cfg.inputs)
         self.tracker = AttemptTracker(cfg.vision)
@@ -112,7 +120,7 @@ class GDEnv(AttemptEnv):
         the first obstacle within a few seconds in practically every level, which
         is far faster than waiting for the run to end on its own.
         """
-        deadline = time.perf_counter() + self.ABORT_TIMEOUT
+        deadline = time.perf_counter() + self._live_run_timeout
         start = self._grab()
         self.presser.set(True)
         try:
@@ -164,6 +172,9 @@ class GDEnv(AttemptEnv):
             reading = self._grab()
             if reading > 0.02 and self.tracker.outcome is Outcome.RUNNING:
                 self._end_live_run()
+            elif not self._started:
+                timeout = self.FIRST_START_TIMEOUT
+        self._started = True
         tick0 = self._wait_for_restart(timeout)
         self.clock.start(at=tick0)
         self._tick = 0

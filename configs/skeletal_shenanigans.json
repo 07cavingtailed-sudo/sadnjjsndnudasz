@@ -14,11 +14,11 @@
 
   "capture": {
     "monitor": 1,
-    // [x, y, w, h] in screen pixels. The values below are placeholders for a
-    // 1920x1080 fullscreen window -- run `gdbot calibrate` and replace them.
+    // [x, y, w, h] in pixels of the monitor. Placeholders for a 1920x1080 screen:
+    // `python -m gdbot calibrate -c configs/skeletal_shenanigans.json` measures and writes them.
     "play_area": [0, 0, 1920, 1080],
     "progress_bar": [660, 30, 600, 18],   // the INNER part of the bar, without its border
-    "bar_fill_rgb": [255, 255, 255],      // colour of the filled part (GD default: white)
+    "bar_fill_rgb": [255, 255, 255],      // colour of the filled part (calibrate measures it)
     "bar_fill_tolerance": 70.0,
   },
 

@@ -75,6 +75,28 @@ def _game_env(cfg: Config):
     return GDEnv(cfg)
 
 
+def _countdown(seconds: int, message: str) -> None:  # pragma: no cover - interactive
+    """Give the user time to bring the game window to the front.
+
+    Key presses go to whichever window is active, and right after a command is
+    typed that is the console, not the game.
+    """
+    if seconds <= 0:
+        return
+    print(message, flush=True)
+    for left in range(seconds, 0, -1):
+        print(f"  {left}...", flush=True)
+        time.sleep(1.0)
+    print("  поехали", flush=True)
+
+
+GAME_FOCUS_MSG = (
+    "Переключитесь в окно Geometry Dash и запустите уровень.\n"
+    "Пока бот играет, не трогайте мышь и клавиатуру: нажатия идут в активное окно.\n"
+    "Остановить: переключитесь в эту консоль и нажмите Ctrl+C (прогресс сохранится)."
+)
+
+
 # ---------------------------------------------------------------- commands
 def cmd_generate(a: argparse.Namespace) -> int:
     from gdbot.sim.generate import generate
@@ -129,6 +151,7 @@ def cmd_solve(a: argparse.Namespace) -> int:
     cfg = _load_config(a.config, run_dir=a.run_dir)
     store = RunStore(cfg.run_dir)
     if a.game:
+        _countdown(a.delay, GAME_FOCUS_MSG)
         env = _game_env(cfg)
         where = "the running game"
     else:
@@ -163,6 +186,8 @@ def cmd_play(a: argparse.Namespace) -> int:
 
     cfg = _load_config(a.config, run_dir=a.run_dir)
     tape = RunStore(cfg.run_dir).load_tape(a.tape)
+    if a.game:
+        _countdown(a.delay, GAME_FOCUS_MSG)
     env = _game_env(cfg) if a.game else _sim_env(cfg, _resolve_level(a.level or cfg.level))
     try:
         ok = 0
@@ -184,6 +209,7 @@ def cmd_record(a: argparse.Namespace) -> int:  # pragma: no cover - needs the ga
     from gdbot.store import RunStore
 
     cfg = _load_config(a.config, run_dir=a.run_dir)
+    _countdown(a.delay, "Переключитесь в окно Geometry Dash и играйте как обычно: бот записывает ваши попытки.")
     recs = record_attempts(cfg, attempts=a.attempts)
     best = max(recs, key=lambda r: r.progress)
     path = RunStore(cfg.run_dir).save_tape("human", best.tape, progress=best.progress,
@@ -208,24 +234,52 @@ def _enable_ansi() -> None:  # pragma: no cover - Windows only
 
 def cmd_calibrate(a: argparse.Namespace) -> int:  # pragma: no cover - needs a display
     import gdbot.features as F
+    from gdbot.calibrate import fit_progress_bar, pick_points, play_area_from, update_config_text
     from gdbot.capture.screen import ScreenCapture
     from gdbot.vision import occupancy_from_frame, read_progress_bar
 
+    if not a.config:
+        raise SystemExit("укажите конфиг игры: -c configs/skeletal_shenanigans.json")
     cfg = _load_config(a.config)
     try:
         import mss
         import mss.tools
     except ImportError:
-        raise SystemExit("calibration needs 'mss': pip install 'gdbot[game]'")
+        raise SystemExit("нужен пакет mss: python -m pip install -r requirements.txt")
+
+    _countdown(a.delay, "Переключитесь в Geometry Dash и запустите уровень. Снимок экрана будет сделан, "
+                        "когда уровень идёт и полоса прогресса уже немного заполнилась.")
     with mss.mss() as sct:
-        mon = sct.monitors[cfg.capture.monitor]
-        shot = sct.grab(mon)
+        shot = sct.grab(sct.monitors[cfg.capture.monitor])
         mss.tools.to_png(shot.rgb, shot.size, output=a.screenshot)
-    print(f"full screenshot saved to {a.screenshot} ({shot.size.width}x{shot.size.height}).")
-    print("Open it, measure the play area and the inner progress bar, and put them in your")
-    print("config as capture.play_area / capture.progress_bar = [x, y, w, h].\n")
-    print("Live readings (Ctrl+C to stop). Start the level: progress must rise from 0 and")
-    print("reset on death; the grid should light up where obstacles are.\n")
+        img = np.asarray(shot)[:, :, 2::-1]  # BGRA -> RGB
+    print(f"снимок экрана сохранён: {a.screenshot} ({shot.size.width}x{shot.size.height})")
+
+    try:
+        points = pick_points(a.screenshot)
+    except ImportError:
+        points = None
+        print("нет tkinter, поэтому окно для щелчков не открыть. Откройте снимок в Paint и впишите в конфиг\n"
+              "capture.play_area и capture.progress_bar = [x, y, ширина, высота] вручную.")
+    if points:
+        fit = fit_progress_bar(img, points[0], points[1])
+        area = play_area_from(points[2], points[3])
+        print(f"полоса прогресса: {fit.rect}, цвет заполнения {fit.fill_rgb}; игровое поле: {area}")
+        if not fit.confident:
+            print(f"ВНИМАНИЕ: не похоже на частично заполненную полосу ({fit.reason}).\n"
+                  "Запустите calibrate ещё раз и сделайте снимок, когда уровень пройден хотя бы на 5-10%.")
+        path = Path(a.config)
+        path.write_text(update_config_text(path.read_text(encoding="utf-8"), {
+            "play_area": area, "progress_bar": fit.rect, "bar_fill_rgb": fit.fill_rgb,
+        }), encoding="utf-8")
+        print(f"записано в {path}")
+        cfg = _load_config(a.config)
+    elif points is None:
+        print("разметка отменена; конфиг не изменён")
+
+    print("\nЖивые показания (Ctrl+C - выход). Во время попытки процент должен расти,\n"
+          "а при смерти падать к нулю; сетка должна загораться там, где препятствия.\n")
+    time.sleep(1.5)
     cap = ScreenCapture(cfg.capture)
     _enable_ansi()
     try:
@@ -233,9 +287,10 @@ def cmd_calibrate(a: argparse.Namespace) -> int:  # pragma: no cover - needs a d
             play, bar = cap.grab()
             p = read_progress_bar(bar, fill_rgb=cfg.capture.bar_fill_rgb,
                                   tolerance=cfg.capture.bar_fill_tolerance)
-            grid = occupancy_from_frame(play, cfg.vision)
+            grid = occupancy_from_frame(play[:: max(1, play.shape[0] // 270), :: max(1, play.shape[0] // 270)],
+                                        cfg.vision)
             rows = "\n".join("   " + "".join("#" if v else "." for v in r) for r in grid)
-            sys.stdout.write(f"\x1b[2J\x1b[Hprogress {p * 100:6.2f}%   grid {F.GRID_H}x{F.GRID_W}\n{rows}\n")
+            sys.stdout.write(f"\x1b[2J\x1b[Hпрогресс {p * 100:6.2f}%   (сетка {F.GRID_H}x{F.GRID_W})\n{rows}\n")
             sys.stdout.flush()
             time.sleep(0.1)
     except KeyboardInterrupt:
@@ -313,6 +368,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="simulator, but restricted to real-game capabilities (no snapshots)")
     s.add_argument("--pretrain", type=int, default=0, help="CEM iterations to run first")
     s.add_argument("--seed-tape", help="name of a tape in the run dir to start from (e.g. 'human')")
+    s.add_argument("--delay", type=int, default=5, help="seconds to switch to the game window (--game)")
     s.set_defaults(fn=cmd_solve)
 
     pl = sub.add_parser("play", help="replay a saved tape and count clean runs")
@@ -321,16 +377,19 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--level")
     pl.add_argument("--game", action="store_true")
     pl.add_argument("--runs", type=int, default=3)
+    pl.add_argument("--delay", type=int, default=5, help="seconds to switch to the game window (--game)")
     pl.set_defaults(fn=cmd_play)
 
     r = sub.add_parser("record", help="record your own attempts to seed the solver")
     common(r)
     r.add_argument("--attempts", type=int, default=5)
+    r.add_argument("--delay", type=int, default=5, help="seconds to switch to the game window")
     r.set_defaults(fn=cmd_record)
 
-    cal = sub.add_parser("calibrate", help="screenshot + live readout to set capture regions")
+    cal = sub.add_parser("calibrate", help="click the progress bar on a screenshot; writes the config")
     common(cal)
     cal.add_argument("--screenshot", default="gd_screenshot.png")
+    cal.add_argument("--delay", type=int, default=8, help="seconds to start the level before the screenshot")
     cal.set_defaults(fn=cmd_calibrate)
 
     sh = sub.add_parser("show", help="describe a level or a tape")

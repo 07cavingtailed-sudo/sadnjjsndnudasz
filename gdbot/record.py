@@ -67,7 +67,7 @@ def record_attempts(cfg: Config, attempts: int = 5, *, verbose: bool = True) -> 
     cut, ticks from the clock, death and completion from the progress bar.
     """
     recordings: list[Recording] = []
-    env = GDEnv(cfg, presser=NullPresser(cfg.inputs.key))
+    env = GDEnv(cfg, presser=NullPresser(cfg.inputs.key), live_run_timeout=900.0)
     try:
         with _KeyWatcher(cfg.inputs.key) as keys:
             for i in range(attempts):
