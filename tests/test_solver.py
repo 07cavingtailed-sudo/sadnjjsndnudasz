@@ -85,3 +85,30 @@ def test_cem_pretraining_learns_the_tutorial(tmp_path):
     policy = Solver(env, cfg, store=RunStore(tmp_path), verbose=False).pretrain_policy(iterations=20)
     assert env.run_policy(policy, max_ticks=cfg.max_ticks).end_progress > 0.5
     assert RunStore(tmp_path).has_policy("policy")
+
+
+def test_interrupted_run_resumes_from_saved_sections(tmp_path, spikes):
+    cfg = _cfg(tmp_path, n_segments=4, attempts_per_segment=2000)
+    first = Solver(RealGameRules(spikes), cfg, store=RunStore(tmp_path), verbose=False)
+    assert first.solve().solved
+    # simulate being stopped before the last section was saved
+    (tmp_path / "prefix_003.tape.json").unlink()
+    (tmp_path / "log.jsonl").unlink()
+
+    second = Solver(RealGameRules(spikes), cfg, store=RunStore(tmp_path), verbose=False)
+    report = second.solve()
+    assert report.solved
+    events = list(RunStore(tmp_path).read_log())
+    resumed = [e for e in events if e["event"] == "resume"]
+    assert resumed and resumed[0]["progress"] == 0.75
+    # only the unsaved last section was worked on again
+    assert [e["index"] for e in events if e["event"] == "segment"] == [3]
+
+
+def test_stale_saved_progress_is_not_trusted(tmp_path, spikes):
+    store = RunStore(tmp_path)
+    store.save_tape("prefix_002", np.zeros(200, np.uint8), progress=0.75)  # dies at spike 1
+    solver = Solver(RealGameRules(spikes), _cfg(tmp_path, n_segments=4, attempts_per_segment=2000),
+                    store=store, verbose=False)
+    assert solver.solve().solved
+    assert any(e["event"] == "resume_rejected" for e in store.read_log())

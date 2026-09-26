@@ -32,6 +32,7 @@ the solver backtracks and re-solves both together.
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from typing import Callable
@@ -329,6 +330,13 @@ class Solver:
         i = 0
         retreats = 0
 
+        resumed = self._resume_point()
+        if resumed is not None:
+            prefix_progress, prefix, solved_stack = resumed
+            i = next((k for k, sg in enumerate(segs) if sg.end > prefix_progress + 1e-9), len(segs))
+            if i < len(segs):
+                segs[i] = Segment(index=segs[i].index, start=prefix_progress, end=segs[i].end)
+
         while i < len(segs):
             seg = segs[i]
             goal = seg.end
@@ -431,6 +439,39 @@ class Solver:
             method="tape-ga",
             segments=records,
         )
+
+    def _resume_point(self) -> tuple[float, np.ndarray, list[tuple[float, np.ndarray]]] | None:
+        """Pick up where an interrupted run stopped.
+
+        Every solved section is saved as ``prefix_NNN.tape.json``.  Against the
+        real game a run takes days, so it will be stopped and restarted; starting
+        over would throw that away.  The furthest saved prefix is replayed once
+        before it is trusted -- if the level, the config or the capture changed in
+        between, it will not replay, and the run starts fresh instead of building
+        on a tape that no longer works.
+        """
+        saved: list[tuple[float, str]] = []
+        for path in self.store.root.glob("prefix_*.tape.json"):
+            meta = json.loads(path.read_text(encoding="utf-8"))
+            saved.append((float(meta.get("progress", 0.0)), path.name[: -len(".tape.json")]))
+        if not saved:
+            return None
+        saved.sort()
+        progress, name = saved[-1]
+        tape = self.store.load_tape(name)
+        check = self._record(self.env.run_tape(tape))
+        if check.end_progress + 1e-9 < progress:
+            self._say(
+                f"  saved progress {progress * 100:.1f}% does not replay any more "
+                f"(reached {check.end_progress * 100:.1f}%); starting from the beginning"
+            )
+            self.store.log("resume_rejected", saved=progress, reached=check.end_progress)
+            return None
+        stack = [(0.0, np.zeros(0, dtype=np.uint8))]
+        stack += [(p, self.store.load_tape(n)) for p, n in saved]
+        self._say(f"  resuming from {progress * 100:.1f}% (the saved tape replays)")
+        self.store.log("resume", progress=progress)
+        return progress, tape, stack
 
     def _trim_to(self, tape: np.ndarray, goal: float) -> np.ndarray:
         """Cut a tape at the first tick where it reaches ``goal`` progress.
